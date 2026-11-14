@@ -1,0 +1,18 @@
+# build output
+/target/
+
+# generated databases (recreate by running the app)
+/data/
+
+# scratch files from running the server
+/.run/
+*.log
+
+# editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Freebuff chat metadata
+/.freebuff/

@@ -1,0 +1,13 @@
+[package]
+name = "sha-decoder"
+version = "0.1.0"
+edition = "2021"
+description = "Generate texts in sequence, hash them into SHA-1/256/384/512 databases, and decode hashes back to text"
+readme = "README.md"
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
