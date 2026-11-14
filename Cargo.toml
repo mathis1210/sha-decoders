@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Generate texts in sequence, hash them into SHA-1/256/384/512 databases, and decode hashes back to text"
 readme = "README.md"
+license = "MIT"
 
 [dependencies]
 

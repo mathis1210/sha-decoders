@@ -20,8 +20,8 @@ You need a recent stable [Rust toolchain](https://rustup.rs) (developed and test
 `cargo` and `rustc` on your `PATH`).
 
 ```bash
-git clone https://github.com/<your-username>/sha-decoder.git
-cd sha-decoder
+git clone https://github.com/mathis1210/sha-decoders.git
+cd sha-decoders
 cargo run --release
 ```
 
@@ -201,3 +201,7 @@ web/index.html  the entire UI (HTML, CSS, JS in one file, embedded in the binary
 - Databases written by earlier versions of this project (single `.db` files with `SHADB01` or
   `SHD2` headers, for example `data/sha1.db`) are ignored by this version. Delete them to
   reclaim the space.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
