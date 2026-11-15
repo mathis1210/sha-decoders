@@ -1,497 +1,208 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>sha decoder — status</title>
-<style>
-  :root {
-    --bg: #0b0d12;
-    --panel: #12151d;
-    --panel-2: #171b25;
-    --line: #242a37;
-    --text: #e6e9f0;
-    --muted: #8b93a7;
-    --accent: #6ee7a8;
-    --accent-dim: #2b6b4c;
-    --red: #ff6b6b;
-    --blue: #7aa2ff;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: radial-gradient(1200px 600px at 50% -10%, #16203010, transparent), var(--bg);
-    color: var(--text);
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    min-height: 100vh;
-  }
-  .wrap { max-width: 940px; margin: 0 auto; padding: 32px 20px 64px; }
-  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
-  h1 { font-size: 20px; letter-spacing: -0.01em; margin: 0; font-weight: 650; }
-  h1 span { color: var(--muted); font-weight: 400; }
-  .tabs { display: flex; gap: 4px; margin-top: 22px; border-bottom: 1px solid var(--line); }
-  .tab {
-    background: none; border: 0; color: var(--muted); font: inherit; font-size: 14px;
-    padding: 10px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
-  }
-  .tab:hover { color: var(--text); }
-  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
-  .panel { display: none; }
-  .panel.active { display: block; }
-
-  .card {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-    padding: 18px 20px; margin-top: 20px;
-  }
-  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .spread { justify-content: space-between; }
-  .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
-
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  .dot.on { background: var(--accent); box-shadow: 0 0 0 4px #6ee7a820; animation: pulse 1.6s infinite; }
-  @keyframes pulse { 50% { box-shadow: 0 0 0 8px #6ee7a808; } }
-  #state { font-weight: 600; }
-  #state.on { color: var(--accent); }
-
-  button.btn {
-    font: inherit; font-size: 14px; font-weight: 600; padding: 10px 18px; border-radius: 9px;
-    border: 1px solid var(--line); background: var(--panel-2); color: var(--text); cursor: pointer;
-    transition: transform 0.06s ease, background 0.15s ease, border-color 0.15s ease;
-  }
-  button.btn:hover { border-color: #3a4356; background: #1c2130; }
-  button.btn:active { transform: translateY(1px); }
-  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #06110b; }
-  button.btn.primary:hover { background: #86f0bb; }
-  button.btn.danger { background: #251519; border-color: #4a2530; color: #ff9b9b; }
-  button.btn.danger:hover { background: #2e181e; }
-  button.btn:disabled { opacity: 0.45; cursor: not-allowed; }
-
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 20px; }
-  .stat {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
-  }
-  .stat .n { font: 600 22px/1.2 var(--mono); font-variant-numeric: tabular-nums; margin-top: 6px; }
-  .stat.off { opacity: 0.45; }
-  button.icon {
-    background: transparent; border: 1px solid transparent; color: var(--muted); padding: 3px;
-    border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; line-height: 0;
-  }
-  button.icon:hover { color: var(--text); background: var(--panel-2); border-color: var(--line); }
-  button.icon.danger:hover { color: var(--red); border-color: #4a2530; }
-  button.icon.off { color: #46506a; }
-  .stat .sub { font: 12px/1.4 var(--mono); color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
-  .stat.hl .n { color: var(--accent); }
-
-  textarea, input[type=text], input[type=number] {
-    width: 100%; background: #0d1017; color: var(--text); border: 1px solid var(--line);
-    border-radius: 10px; padding: 12px 14px; font: 14px/1.55 var(--mono); resize: vertical;
-    outline: none;
-  }
-  textarea:focus, input[type=text]:focus { border-color: var(--accent-dim); }
-  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
-  .err { color: var(--red); font-size: 13px; margin: 8px 0 0; }
-
-  .hashline {
-    display: grid; grid-template-columns: 84px 1fr; gap: 12px; align-items: center;
-    padding: 9px 0; border-top: 1px solid var(--line);
-  }
-  .hashline:first-child { border-top: 0; }
-  .algo { font: 600 12px/1 var(--mono); color: var(--blue); letter-spacing: 0.04em; }
-  .val { font: 12.5px/1.5 var(--mono); color: #cfd6e6; overflow-wrap: anywhere; cursor: pointer; }
-  .val:hover { color: #fff; }
-  #decoded { margin-top: 4px; }
-  .big { font: 15px/1.6 var(--mono); background: #0d1017; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-wrap: anywhere; white-space: pre-wrap; }
-  .foot { color: var(--muted); font-size: 12px; margin-top: 28px; }
-  code { font-family: var(--mono); color: #b9c3d6; }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>sha-decoder · status</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>sha decoder <span>— text → sha1 · sha256 · sha384 · sha512</span></h1>
+
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="3.5" y="3.5" width="25" height="25" rx="7" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="M13 9 L11 23 M21 9 L19 23 M9 13.5 H23 M8 18.5 H22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-text">
+        <span class="brand-name">sha‑decoder</span>
+        <span class="brand-sub">sequence hashing</span>
+      </span>
+    </div>
+
+    <div class="topbar-actions">
+      <div class="status" id="status-pill" role="status" aria-live="polite">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">connecting…</span>
+      </div>
+      <button class="btn btn-primary" id="btn-start" type="button">Start</button>
+      <button class="btn btn-ghost" id="btn-stop" type="button" disabled>Stop</button>
+    </div>
   </header>
 
-  <div class="tabs">
-    <button class="tab active" data-tab="status">Status</button>
-    <button class="tab" data-tab="codec">Encode / Decode</button>
-    <button class="tab" data-tab="storage">Storage</button>
-  </div>
+  <main class="wrap">
 
-  <!-- ------------------------------------------------------ status tab -->
-  <section class="panel active" id="panel-status">
-    <div class="card">
-      <div class="row spread">
-        <div class="row">
-          <span class="dot" id="dot"></span>
-          <span id="state">Paused</span>
-        </div>
-        <div class="row">
-          <button class="btn primary" id="start">Start</button>
-          <button class="btn danger" id="stop">Stop</button>
-        </div>
-      </div>
-    </div>
+    <p class="notice hidden" id="stop-reason"></p>
 
-    <div class="grid">
-      <div class="stat" id="card-sha1">
-        <div class="row spread">
-          <div class="label">SHA-1 entries</div>
-          <div class="row" style="gap:2px">
-            <button class="icon" data-toggle="sha1" title="Disable sha1"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></button>
-            <button class="icon danger" data-remove="sha1" title="Delete all sha1 data"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/></svg></button>
+    <section class="stats" aria-label="Overview">
+      <article class="stat">
+        <span class="stat-label">Entries stored</span>
+        <strong class="stat-value" id="stat-total">0</strong>
+        <span class="stat-note" id="stat-total-note">across four databases</span>
+      </article>
+      <article class="stat">
+        <span class="stat-label">On disk</span>
+        <strong class="stat-value" id="stat-bytes">0 B</strong>
+        <span class="stat-note" id="stat-bytes-note">compressed records</span>
+      </article>
+      <article class="stat">
+        <span class="stat-label">Throughput</span>
+        <strong class="stat-value" id="stat-rate">0</strong>
+        <span class="stat-note" id="stat-rate-note">entries per second</span>
+      </article>
+      <article class="stat">
+        <span class="stat-label">Next text</span>
+        <strong class="stat-value mono" id="stat-next">—</strong>
+        <span class="stat-note" id="stat-next-note">resume point</span>
+      </article>
+    </section>
+
+    <div class="layout">
+
+      <section class="panel" aria-labelledby="db-title">
+        <div class="panel-head">
+          <h2 id="db-title">Databases</h2>
+          <span class="panel-meta" id="db-meta">—</span>
+        </div>
+
+        <div class="db-list" id="db-list">
+          <div class="db-row" data-row="sha1">
+            <div class="db-name"><span class="tag">SHA‑1</span><span class="db-file">sha1</span></div>
+            <div class="db-cell"><span class="db-count" data-count="sha1">0</span><span class="db-unit">entries</span></div>
+            <div class="db-cell"><span class="db-size" data-size="sha1">0 B</span><span class="db-unit">on disk</span></div>
+            <label class="switch" title="Keep writing sha1 entries">
+              <input type="checkbox" data-toggle="sha1" checked>
+              <span class="track" aria-hidden="true"></span>
+              <span class="sr-only">Generate sha1 entries</span>
+            </label>
+            <button class="icon-btn" type="button" data-remove="sha1" aria-label="Delete all sha1 data" title="Delete all sha1 data">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6h12M8 6V4.5A1.5 1.5 0 0 1 9.5 3h1A1.5 1.5 0 0 1 12 4.5V6m-6 0 .7 9.1A1.5 1.5 0 0 0 8.2 16.5h3.6a1.5 1.5 0 0 0 1.5-1.4L14 6M8.5 9v4.5M11.5 9v4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+
+          <div class="db-row" data-row="sha256">
+            <div class="db-name"><span class="tag">SHA‑256</span><span class="db-file">sha256</span></div>
+            <div class="db-cell"><span class="db-count" data-count="sha256">0</span><span class="db-unit">entries</span></div>
+            <div class="db-cell"><span class="db-size" data-size="sha256">0 B</span><span class="db-unit">on disk</span></div>
+            <label class="switch" title="Keep writing sha256 entries">
+              <input type="checkbox" data-toggle="sha256" checked>
+              <span class="track" aria-hidden="true"></span>
+              <span class="sr-only">Generate sha256 entries</span>
+            </label>
+            <button class="icon-btn" type="button" data-remove="sha256" aria-label="Delete all sha256 data" title="Delete all sha256 data">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6h12M8 6V4.5A1.5 1.5 0 0 1 9.5 3h1A1.5 1.5 0 0 1 12 4.5V6m-6 0 .7 9.1A1.5 1.5 0 0 0 8.2 16.5h3.6a1.5 1.5 0 0 0 1.5-1.4L14 6M8.5 9v4.5M11.5 9v4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+
+          <div class="db-row" data-row="sha384">
+            <div class="db-name"><span class="tag">SHA‑384</span><span class="db-file">sha384</span></div>
+            <div class="db-cell"><span class="db-count" data-count="sha384">0</span><span class="db-unit">entries</span></div>
+            <div class="db-cell"><span class="db-size" data-size="sha384">0 B</span><span class="db-unit">on disk</span></div>
+            <label class="switch" title="Keep writing sha384 entries">
+              <input type="checkbox" data-toggle="sha384" checked>
+              <span class="track" aria-hidden="true"></span>
+              <span class="sr-only">Generate sha384 entries</span>
+            </label>
+            <button class="icon-btn" type="button" data-remove="sha384" aria-label="Delete all sha384 data" title="Delete all sha384 data">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6h12M8 6V4.5A1.5 1.5 0 0 1 9.5 3h1A1.5 1.5 0 0 1 12 4.5V6m-6 0 .7 9.1A1.5 1.5 0 0 0 8.2 16.5h3.6a1.5 1.5 0 0 0 1.5-1.4L14 6M8.5 9v4.5M11.5 9v4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+
+          <div class="db-row" data-row="sha512">
+            <div class="db-name"><span class="tag">SHA‑512</span><span class="db-file">sha512</span></div>
+            <div class="db-cell"><span class="db-count" data-count="sha512">0</span><span class="db-unit">entries</span></div>
+            <div class="db-cell"><span class="db-size" data-size="sha512">0 B</span><span class="db-unit">on disk</span></div>
+            <label class="switch" title="Keep writing sha512 entries">
+              <input type="checkbox" data-toggle="sha512" checked>
+              <span class="track" aria-hidden="true"></span>
+              <span class="sr-only">Generate sha512 entries</span>
+            </label>
+            <button class="icon-btn" type="button" data-remove="sha512" aria-label="Delete all sha512 data" title="Delete all sha512 data">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6h12M8 6V4.5A1.5 1.5 0 0 1 9.5 3h1A1.5 1.5 0 0 1 12 4.5V6m-6 0 .7 9.1A1.5 1.5 0 0 0 8.2 16.5h3.6a1.5 1.5 0 0 0 1.5-1.4L14 6M8.5 9v4.5M11.5 9v4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </button>
           </div>
         </div>
-        <div class="n" id="c-sha1">0</div><div class="sub" id="sub-sha1">sha1</div>
-      </div>
-      <div class="stat" id="card-sha256">
-        <div class="row spread">
-          <div class="label">SHA-256 entries</div>
-          <div class="row" style="gap:2px">
-            <button class="icon" data-toggle="sha256" title="Disable sha256"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></button>
-            <button class="icon danger" data-remove="sha256" title="Delete all sha256 data"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/></svg></button>
+      </section>
+
+      <aside class="side">
+        <section class="panel" aria-labelledby="rules-title">
+          <div class="panel-head">
+            <h2 id="rules-title">Stop rules</h2>
+            <span class="panel-meta" id="rules-meta">optional</span>
           </div>
-        </div>
-        <div class="n" id="c-sha256">0</div><div class="sub" id="sub-sha256">sha256</div>
-      </div>
-      <div class="stat" id="card-sha384">
-        <div class="row spread">
-          <div class="label">SHA-384 entries</div>
-          <div class="row" style="gap:2px">
-            <button class="icon" data-toggle="sha384" title="Disable sha384"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></button>
-            <button class="icon danger" data-remove="sha384" title="Delete all sha384 data"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/></svg></button>
+          <form id="limits-form" class="form">
+            <label class="field">
+              <span>Total storage (GB)</span>
+              <input class="input" type="number" id="limit-storage" min="0" step="0.1" placeholder="50">
+            </label>
+            <label class="field">
+              <span>Entries per database</span>
+              <input class="input" type="number" id="limit-per-db" min="0" step="1000" placeholder="50000000">
+            </label>
+            <label class="field">
+              <span>Total entries</span>
+              <input class="input" type="number" id="limit-total" min="0" step="1000" placeholder="250000000">
+            </label>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">Save rules</button>
+              <span class="hint" id="limits-msg" aria-live="polite"></span>
+            </div>
+            <p class="hint" id="limits-note">no stop rule set</p>
+          </form>
+
+          <div class="panel-foot">
+            <button class="btn btn-danger" type="button" id="btn-clear">Empty all databases</button>
           </div>
+        </section>
+      </aside>
+    </div>
+
+    <section class="panel tools" aria-labelledby="tools-title">
+      <div class="panel-head">
+        <h2 id="tools-title">Encode &amp; decode</h2>
+        <span class="panel-meta">saved text is searchable too</span>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Encode or decode">
+        <button class="tab active" type="button" role="tab" id="tabencode" aria-selected="true" aria-controls="panel-encode" data-tab="encode">Encode</button>
+        <button class="tab" type="button" role="tab" id="tabdecode" aria-selected="false" aria-controls="panel-decode" data-tab="decode">Decode</button>
+      </div>
+
+      <div class="tab-panel" id="panel-encode" role="tabpanel" aria-labelledby="tabencode">
+        <label class="field" for="encode-input">
+          <span>Text to hash and save</span>
+        </label>
+        <textarea class="input mono" id="encode-input" rows="3" placeholder="hello" spellcheck="false"></textarea>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="button" id="btn-encode">Hash &amp; save</button>
+          <span class="hint" id="encode-msg" aria-live="polite"></span>
         </div>
-        <div class="n" id="c-sha384">0</div><div class="sub" id="sub-sha384">sha384</div>
+        <ul class="hash-list" id="hash-list" aria-live="polite"></ul>
       </div>
-      <div class="stat" id="card-sha512">
-        <div class="row spread">
-          <div class="label">SHA-512 entries</div>
-          <div class="row" style="gap:2px">
-            <button class="icon" data-toggle="sha512" title="Disable sha512"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></button>
-            <button class="icon danger" data-remove="sha512" title="Delete all sha512 data"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/></svg></button>
-          </div>
+
+      <div class="tab-panel hidden" id="panel-decode" role="tabpanel" aria-labelledby="tabdecode">
+        <label class="field" for="decode-input">
+          <span>Hash to look up (40, 64, 96 or 128 hex characters)</span>
+        </label>
+        <input class="input mono" id="decode-input" type="text" placeholder="aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d" spellcheck="false" autocomplete="off">
+        <div class="form-actions">
+          <button class="btn btn-primary" type="button" id="btn-decode">Find text</button>
+          <span class="hint" id="decode-msg" aria-live="polite"></span>
         </div>
-        <div class="n" id="c-sha512">0</div><div class="sub" id="sub-sha512">sha512</div>
+        <div class="result hidden" id="decode-result" aria-live="polite"></div>
       </div>
-    </div>
+    </section>
 
-    <div class="card">
-      <div class="row spread">
-        <div class="label">Stop rules</div>
-        <span class="hint" id="limit-state" style="margin:0"></span>
-      </div>
-      <div class="grid" style="margin-top:14px">
-        <div>
-          <div class="label" style="margin-bottom:6px">Total storage (GB)</div>
-          <input type="number" id="lim-gb" min="0" step="1" placeholder="off" />
-        </div>
-        <div>
-          <div class="label" style="margin-bottom:6px">Entries per db</div>
-          <input type="number" id="lim-perdb" min="0" step="1000000" placeholder="off" />
-        </div>
-        <div>
-          <div class="label" style="margin-bottom:6px">Total entries</div>
-          <input type="number" id="lim-total" min="0" step="1000000" placeholder="off" />
-        </div>
-      </div>
-      <div class="row" style="margin-top:14px">
-        <button class="btn" id="lim-btn">Set limits</button>
-        <button class="btn danger" id="clear-btn">Empty all databases</button>
-        <span class="hint" id="lim-msg" style="margin:0"></span>
-      </div>
-    </div>
+  </main>
 
-    <div class="grid">
-      <div class="stat hl"><div class="label">Total entries</div><div class="n" id="total">0</div><div class="sub">across all dbs</div></div>
-      <div class="stat hl"><div class="label">Total storage</div><div class="n" id="st-size">0 B</div><div class="sub" id="st-size-sub">all four dbs</div></div>
-      <div class="stat"><div class="label">Write speed</div><div class="n" id="write-rate">—</div><div class="sub">all four dbs</div></div>
-      <div class="stat"><div class="label">This session</div><div class="n" id="produced">0</div><div class="sub" id="rate">0 / s</div></div>
-      <div class="stat"><div class="label">Resumes at text</div><div class="n" id="next-text">a</div><div class="sub" id="next-index">index 0</div></div>
-      <div class="stat"><div class="label">Last generated</div><div class="n" id="last-text">—</div><div class="sub">saved tail of the sequence</div></div>
-    </div>
+  <footer class="footer">
+    <span>sha-decoder · binds 127.0.0.1 only</span>
+    <span>8.8 bytes per entry · 512 shards per database</span>
+  </footer>
 
-    <p class="foot">Sequence: <code>a, b, c … z, A … Z, 0 … 9, punctuation, space</code>, then <code>aa, ab, ac …</code>. Stopping flushes the databases; starting again continues from the last generated text.</p>
-  </section>
-
-  <!-- ------------------------------------------------------ storage tab -->
-  <section class="panel" id="panel-storage">
-    <div class="grid">
-      <div class="stat"><div class="label">sha1</div><div class="n" id="sz-sha1">0 B</div><div class="sub" id="sze-sha1">0 entries</div></div>
-      <div class="stat"><div class="label">sha256</div><div class="n" id="sz-sha256">0 B</div><div class="sub" id="sze-sha256">0 entries</div></div>
-      <div class="stat"><div class="label">sha384</div><div class="n" id="sz-sha384">0 B</div><div class="sub" id="sze-sha384">0 entries</div></div>
-      <div class="stat"><div class="label">sha512</div><div class="n" id="sz-sha512">0 B</div><div class="sub" id="sze-sha512">0 entries</div></div>
-    </div>
-
-    <div class="grid">
-      <div class="stat hl"><div class="label">Total storage</div><div class="n" id="sz-total">0 B</div><div class="sub" id="sz-total-sub">all four dbs</div></div>
-      <div class="stat"><div class="label">Average per entry</div><div class="n" id="sz-avg">0 B</div><div class="sub">across all dbs</div></div>
-      <div class="stat"><div class="label">Total entries</div><div class="n" id="sz-entries">0</div><div class="sub">stored records</div></div>
-    </div>
-
-    <p class="foot">Sizes are the actual files in <code>data/</code>. Each generated text is appended to all four dbs, so total storage grows roughly 4× the entry count per second while generating.</p>
-  </section>
-
-  <!-- ------------------------------------------------------- codec tab -->
-  <section class="panel" id="panel-codec">
-    <div class="card">
-      <div class="label">Encode</div>
-      <textarea id="enc-in" rows="3" placeholder="Type text to hash — it is saved into all four dbs."></textarea>
-      <div class="row" style="margin-top:12px">
-        <button class="btn primary" id="enc-btn">Encode</button>
-        <span class="hint" id="enc-status" style="margin:0"></span>
-      </div>
-      <div id="enc-out" style="margin-top:12px"></div>
-      <p class="err" id="enc-err" hidden></p>
-    </div>
-
-    <div class="card">
-      <div class="label">Decode</div>
-      <input type="text" id="dec-in" placeholder="Paste a sha1 / sha256 / sha384 / sha512 hash" spellcheck="false" />
-      <div class="row" style="margin-top:12px">
-        <button class="btn primary" id="dec-btn">Decode</button>
-        <span class="hint" style="margin:0">length picks the algorithm</span>
-      </div>
-      <div id="decoded"></div>
-      <p class="err" id="dec-err" hidden></p>
-    </div>
-  </section>
-</div>
-
-<script>
-const $ = (id) => document.getElementById(id);
-const fmt = (n) => Number(n).toLocaleString("en-US");
-
-document.querySelectorAll(".tab").forEach((t) => {
-  t.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
-    document.querySelectorAll(".panel").forEach((p) =>
-      p.classList.toggle("active", p.id === "panel-" + t.dataset.tab)
-    );
-  });
-});
-
-function bytes(n) {
-  n = Number(n) || 0;
-  if (n >= 1e9) return (n / 1e9).toFixed(2) + " GB";
-  if (n >= 1e6) return (n / 1e6).toFixed(2) + " MB";
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + " KB";
-  return n + " B";
-}
-
-const STATE = { enabled: {} };
-let limitsFilled = false;
-
-function render(s) {
-  $("dot").classList.toggle("on", s.running);
-  $("state").textContent = s.running ? "Generating" : (s.stopped_by ? "Stopped" : "Paused");
-  $("state").classList.toggle("on", s.running);
-
-  if (!limitsFilled) {
-    $("lim-gb").value = s.limits.storage_bytes ? s.limits.storage_bytes / 1e9 : "";
-    $("lim-perdb").value = s.limits.per_db || "";
-    $("lim-total").value = s.limits.total_entries || "";
-    limitsFilled = true;
-  }
-  $("limit-state").textContent = s.stopped_by
-    ? "stopped: " + s.stopped_by
-    : (s.running ? "active: " + s.limits_text : s.limits_text);
-  $("start").disabled = s.running;
-  $("stop").disabled = !s.running;
-
-  STATE.enabled = s.enabled;
-  ["sha1", "sha256", "sha384", "sha512"].forEach((a) => {
-    const on = s.enabled[a];
-    $("c-" + a).textContent = fmt(s.entries[a]);
-    $("sub-" + a).textContent = a + (on ? " · " + bytes(s.sizes[a]) : " · disabled");
-    $("card-" + a).classList.toggle("off", !on);
-    const btn = document.querySelector('[data-toggle="' + a + '"]');
-    if (btn) {
-      btn.classList.toggle("off", !on);
-      btn.title = (on ? "Disable " : "Enable ") + a;
-    }
-  });
-  $("total").textContent = fmt(s.total);
-  $("st-size").textContent = bytes(s.size_total);
-  $("st-size-sub").textContent = "all four dbs · " + bytes(s.total ? Math.round(s.size_total / s.total) : 0) + "/entry";
-  $("write-rate").textContent = s.running ? bytes(s.write_bps) + "/s" : "—";
-  $("produced").textContent = fmt(s.produced);
-  $("rate").textContent = s.running ? fmt(s.rate) + " / s" : "idle";
-  $("next-text").textContent = JSON.stringify(s.next_text);
-  $("next-index").textContent = "index " + fmt(s.next_index);
-  $("last-text").textContent = s.last_text ? JSON.stringify(s.last_text) : "—";
-
-  ["sha1", "sha256", "sha384", "sha512"].forEach((a) => {
-    $("sz-" + a).textContent = bytes(s.sizes[a]);
-    $("sze-" + a).textContent = fmt(s.entries[a]) + " entries";
-  });
-  $("sz-total").textContent = bytes(s.size_total);
-  $("sz-entries").textContent = fmt(s.total);
-  $("sz-total-sub").textContent = s.running
-    ? "all four dbs · " + bytes(s.write_bps) + "/s"
-    : "all four dbs";
-  $("sz-avg").textContent = s.total > 0 ? bytes(Math.round(s.size_total / s.total)) : "0 B";
-}
-
-async function poll() {
-  try {
-    const r = await fetch("/api/status", { cache: "no-store" });
-    if (r.ok) render(await r.json());
-  } catch (_) {}
-}
-poll();
-
-// Live feed: the server pushes a status frame every 100 ms while generating.
-// A push arrives as a network event, so it keeps working when the tab is in
-// the background, where timer-based polling gets throttled.
-let stream = null;
-function connectStream() {
-  if (!("EventSource" in window)) {
-    setInterval(poll, 250);
-    return;
-  }
-  stream = new EventSource("/api/stream");
-  stream.onmessage = (e) => {
-    try {
-      render(JSON.parse(e.data));
-    } catch (_) {}
-  };
-  stream.onerror = () => {
-    // EventSource retries on its own; a plain poll covers the gap.
-    poll();
-  };
-}
-connectStream();
-
-// Coming back to the tab should be instant either way.
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) poll();
-});
-window.addEventListener("focus", poll);
-
-$("start").addEventListener("click", async () => {
-  $("start").disabled = true;
-  await fetch("/api/start", { method: "POST" });
-  poll();
-});
-$("stop").addEventListener("click", async () => {
-  $("stop").disabled = true;
-  await fetch("/api/stop", { method: "POST" });
-  poll();
-});
-
-$("lim-btn").addEventListener("click", async () => {
-  const body =
-    "storage_gb=" + encodeURIComponent($("lim-gb").value || "0") +
-    "&per_db=" + encodeURIComponent($("lim-perdb").value || "0") +
-    "&total_entries=" + encodeURIComponent($("lim-total").value || "0");
-  const r = await fetch("/api/limits", { method: "POST", body });
-  const d = await r.json();
-  $("lim-msg").textContent = "saved";
-  setTimeout(() => ($("lim-msg").textContent = ""), 1500);
-  render(d);
-});
-
-$("clear-btn").addEventListener("click", async () => {
-  if (!confirm("Empty all four databases? This deletes every stored entry and restarts the sequence at 'a'.")) return;
-  const r = await fetch("/api/clear", { method: "POST" });
-  const d = await r.json();
-  if (d.ok === false) {
-    $("lim-msg").textContent = d.error || "clear failed";
-    return;
-  }
-  $("lim-msg").textContent = "databases emptied";
-  setTimeout(() => ($("lim-msg").textContent = ""), 2000);
-  render(d);
-});
-
-/* ------------------------------------------------------------- codec --- */
-const ALGOS = ["sha1", "sha256", "sha384", "sha512"];
-
-function hashRows(data) {
-  return ALGOS.map(
-    (a) => `<div class="hashline"><div class="algo">${a.toUpperCase().replace("SHA", "SHA-")}</div>
-      <div class="val" title="click to copy" data-v="${data[a]}">${data[a]}</div></div>`
-  ).join("");
-}
-
-document.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-toggle]");
-  if (t) {
-    const alg = t.dataset.toggle;
-    const on = !STATE.enabled[alg];
-    await fetch("/api/toggle", { method: "POST", body: "alg=" + alg + "&on=" + (on ? 1 : 0) });
-    poll();
-    return;
-  }
-  const r = e.target.closest("[data-remove]");
-  if (r) {
-    const alg = r.dataset.remove;
-    if (confirm("Delete every stored " + alg.toUpperCase() + " hash? Its files are removed and that algorithm is switched off.")) {
-      await fetch("/api/remove", { method: "POST", body: "alg=" + alg });
-      poll();
-    }
-    return;
-  }
-  const v = e.target.closest(".val");
-  if (v && v.dataset.v) {
-    navigator.clipboard && navigator.clipboard.writeText(v.dataset.v);
-    const old = v.style.color;
-    v.style.color = "var(--accent)";
-    setTimeout(() => (v.style.color = old), 350);
-  }
-});
-
-$("enc-btn").addEventListener("click", async () => {
-  const text = $("enc-in").value;
-  $("enc-err").hidden = true;
-  if (!text) {
-    $("enc-err").textContent = "Type something to encode first.";
-    $("enc-err").hidden = false;
-    return;
-  }
-  $("enc-status").textContent = "hashing…";
-  try {
-    const r = await fetch("/api/encode", { method: "POST", body: text });
-    const d = await r.json();
-    if (!d.ok) throw new Error(d.error || "encode failed");
-    $("enc-out").innerHTML = hashRows(d);
-    $("enc-status").textContent = "saved to the enabled dbs";
-    poll();
-  } catch (e) {
-    $("enc-status").textContent = "";
-    $("enc-err").textContent = e.message;
-    $("enc-err").hidden = false;
-  }
-});
-
-$("dec-btn").addEventListener("click", async () => {
-  const h = $("dec-in").value.trim();
-  $("dec-err").hidden = true;
-  $("decoded").innerHTML = "";
-  if (!h) {
-    $("dec-err").textContent = "Paste a hash to decode.";
-    $("dec-err").hidden = false;
-    return;
-  }
-  try {
-    const r = await fetch("/api/decode", { method: "POST", body: h });
-    const d = await r.json();
-    if (!d.ok) throw new Error(d.error || "decode failed");
-    if (!d.found) {
-      $("decoded").innerHTML =
-        `<p class="hint">No match in the <code>${d.alg}</code> store. That text has not been generated or encoded yet.</p>`;
-      return;
-    }
-    $("decoded").innerHTML =
-      `<div class="label" style="margin-top:16px">Decoded with ${d.alg}</div>
-       <div class="big" id="dec-text"></div>`;
-    $("dec-text").textContent = d.text;
-  } catch (e) {
-    $("dec-err").textContent = e.message;
-    $("dec-err").hidden = false;
-  }
-});
-</script>
+  <script src="script.js"></script>
 </body>
 </html>

@@ -475,6 +475,16 @@ fn handle(mut stream: TcpStream, app: &Arc<App>) -> io::Result<()> {
         ("GET", "/") | ("GET", "/index.html") => {
             respond(&mut stream, "200 OK", "text/html; charset=utf-8", INDEX_HTML.as_bytes())
         }
+        ("GET", "/styles.css") => {
+            let body = std::fs::read("web/styles.css").unwrap_or_default();
+            let mime = "text/css";
+            respond(&mut stream, "200 OK", mime, &body)
+        }
+        ("GET", "/script.js") => {
+            let body = std::fs::read("web/script.js").unwrap_or_default();
+            let mime = "application/javascript";
+            respond(&mut stream, "200 OK", mime, &body)
+        }
         ("GET", "/api/status") => json(&mut stream, &app.status_json()),
         ("GET", "/api/stream") => stream_status(&mut stream, app),
         ("POST", "/api/start") => {
