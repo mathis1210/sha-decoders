@@ -118,7 +118,7 @@ pub fn text_of(idx: u64) -> Vec<u8> {
     b[..n].to_vec()
 }
 
-fn digest(alg: usize, text: &[u8]) -> Vec<u8> {
+pub fn digest(alg: usize, text: &[u8]) -> Vec<u8> {
     match alg {
         0 => sha::sha1(text).to_vec(),
         1 => sha::sha256(text).to_vec(),
@@ -328,6 +328,21 @@ fn write_state_to(f: &mut File, st: &[(u64, u64, u64)]) -> io::Result<()> {
 }
 
 // ----------------------------------------------------------------- store ----
+
+/// One pair of entries sharing a 55-bit shard key.
+pub struct Crossover {
+    pub shard: usize,
+    pub a_index: u64,
+    pub b_index: u64,
+    pub key: u64,
+}
+
+/// A digest found in a database. `index` is `u64::MAX` for text saved through
+/// the encode tab, which does not live in the sequence.
+pub struct Found {
+    pub index: u64,
+    pub text: Vec<u8>,
+}
 
 struct Alg {
     dir: PathBuf,
@@ -798,6 +813,159 @@ impl Store {
             sha::hex(&d[2]),
             sha::hex(&d[3]),
         ])
+    }
+
+    /// Pairs of entries that share a 55-bit shard key. Full digests are always
+    /// re-checked on lookup, so these are index crossovers, not digest
+    /// collisions. Returns (pair count, examples).
+    pub fn scan_crossovers(&self, alg: usize, limit: usize) -> io::Result<(u64, Vec<Crossover>)> {
+        let a = &self.algs[alg];
+        let mut pairs = 0u64;
+        let mut out: Vec<Crossover> = Vec::new();
+        let mut entries: Vec<(u64, u64)> = Vec::new();
+
+        for b in 0..BUCKETS {
+            entries.clear();
+            let f = match File::open(&a.paths[b]) {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+            let mut r = BufReader::with_capacity(1 << 20, f);
+            let mut hdr = [0u8; FILE_HDR];
+            if r.read_exact(&mut hdr).is_err() {
+                continue;
+            }
+            let mut idx = 0u64;
+            let mut kbuf = [0u8; KEY_BYTES];
+            while r.read_exact(&mut kbuf).is_ok() {
+                let (d, _) = match read_varint(&mut r) {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+                idx += d;
+                entries.push((key_from(&kbuf), idx));
+            }
+            if entries.len() < 2 {
+                continue;
+            }
+            entries.sort_unstable_by_key(|e| e.0);
+            let mut i = 0;
+            while i + 1 < entries.len() {
+                if entries[i].0 != entries[i + 1].0 {
+                    i += 1;
+                    continue;
+                }
+                let mut j = i;
+                while j + 1 < entries.len() && entries[j + 1].0 == entries[i].0 {
+                    j += 1;
+                }
+                let run = (j - i + 1) as u64;
+                pairs += run * (run - 1) / 2;
+                let key = entries[i].0;
+                for k in i..j {
+                    if out.len() >= limit {
+                        break;
+                    }
+                    out.push(Crossover {
+                        shard: b,
+                        a_index: entries[k].1,
+                        b_index: entries[k + 1].1,
+                        key,
+                    });
+                }
+                i = j + 1;
+            }
+        }
+        Ok((pairs, out))
+    }
+
+    /// Look many digests up at once: the encode-tab file first, then every
+    /// touched shard exactly once.
+    pub fn find_matches(
+        &self,
+        alg: usize,
+        targets: &[Vec<u8>],
+    ) -> io::Result<Vec<Option<Found>>> {
+        let a = &self.algs[alg];
+        let hlen = HLEN[alg];
+        let mut out: Vec<Option<Found>> = (0..targets.len()).map(|_| None).collect();
+
+        if let Ok(f) = File::open(&a.user_path) {
+            let mut r = BufReader::with_capacity(1 << 16, f);
+            let mut lenbuf = [0u8; 2];
+            let mut text = Vec::new();
+            let mut hash = [0u8; 64];
+            loop {
+                if r.read_exact(&mut lenbuf).is_err() {
+                    break;
+                }
+                let tlen = u16::from_le_bytes(lenbuf) as usize;
+                text.resize(tlen, 0);
+                if r.read_exact(&mut text).is_err() || r.read_exact(&mut hash[..hlen]).is_err() {
+                    break;
+                }
+                for (i, t) in targets.iter().enumerate() {
+                    if out[i].is_none() && t.len() == hlen && hash[..hlen] == t[..] {
+                        out[i] = Some(Found {
+                            index: u64::MAX,
+                            text: text.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        let mut by_bucket: Vec<Vec<(u64, usize)>> = vec![Vec::new(); BUCKETS];
+        for (i, t) in targets.iter().enumerate() {
+            if out[i].is_some() || t.len() < PREFIX {
+                continue;
+            }
+            let mut p = [0u8; 8];
+            p.copy_from_slice(&t[..PREFIX]);
+            let prefix = u64::from_be_bytes(p);
+            by_bucket[bucket_of(prefix)].push((key_of(prefix), i));
+        }
+
+        let mut tbuf = [0u8; 16];
+        for b in 0..BUCKETS {
+            if by_bucket[b].is_empty() {
+                continue;
+            }
+            let f = match File::open(&a.paths[b]) {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+            let mut r = BufReader::with_capacity(1 << 20, f);
+            let mut hdr = [0u8; FILE_HDR];
+            if r.read_exact(&mut hdr).is_err() {
+                continue;
+            }
+            let mut idx = 0u64;
+            let mut kbuf = [0u8; KEY_BYTES];
+            while r.read_exact(&mut kbuf).is_ok() {
+                let (d, _) = match read_varint(&mut r) {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+                idx += d;
+                let key = key_from(&kbuf);
+                if by_bucket[b].iter().all(|&(k, _)| k != key) {
+                    continue;
+                }
+                let tlen = text_at(idx, &mut tbuf);
+                let text = &tbuf[..tlen];
+                let d = digest(alg, text);
+                for &(k, ti) in &by_bucket[b] {
+                    if k == key && out[ti].is_none() && d == targets[ti] {
+                        out[ti] = Some(Found {
+                            index: idx,
+                            text: text.to_vec(),
+                        });
+                    }
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Find the text for one hash: the encode-tab file first (exact digests),

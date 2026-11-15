@@ -388,6 +388,175 @@ $("#encode-input").addEventListener("keydown", (ev) => {
   if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) $("#btn-encode").click();
 });
 
+// -------------------------------------------------------------- crossovers ---
+
+function crossItem(head, main, sub, kind, badge, hashes) {
+  const li = document.createElement("li");
+  li.className = "cross-item" + (kind ? " is-" + kind : "");
+  const h = document.createElement("span");
+  h.className = "cross-head";
+  h.textContent = head;
+  const m = document.createElement("span");
+  m.className = "cross-main";
+  m.textContent = main;
+  li.append(h, m);
+  if (badge) {
+    const b = document.createElement("span");
+    b.className = "cross-badge " + badge.cls;
+    b.textContent = badge.text;
+    li.append(b);
+  }
+  if (sub) {
+    const s = document.createElement("span");
+    s.className = "cross-sub";
+    s.textContent = sub;
+    li.append(s);
+  }
+  if (hashes) {
+    for (const line of hashes) {
+      const d = document.createElement("span");
+      d.className = "cross-hash";
+      d.textContent = line;
+      li.append(d);
+    }
+  }
+  return li;
+}
+
+function crossCell(label, text, cls) {
+  const c = document.createElement("span");
+  c.className = "cross-cell" + (cls ? " " + cls : "");
+  c.dataset.label = label;
+  c.textContent = text;
+  return c;
+}
+
+function crossHeadRow() {
+  const row = document.createElement("div");
+  row.className = "cross-row cross-row-head";
+  for (const t of ["database", "entries", "key", "hash", "match"]) {
+    const s = document.createElement("span");
+    s.textContent = t;
+    row.append(s);
+  }
+  return row;
+}
+
+function crossEmpty(text) {
+  const d = document.createElement("div");
+  d.className = "cross-row cross-empty";
+  d.textContent = text;
+  return d;
+}
+
+function crossRow(e) {
+  const row = document.createElement("div");
+  row.className = "cross-row";
+
+  row.append(crossCell("database", e.alg + " · shard " + e.shard, "mono"));
+
+  const pair = crossCell("entries", e.aText + "  ↔  " + e.bText, "mono cross-pair");
+  const idx = document.createElement("span");
+  idx.className = "cross-sub";
+  idx.textContent =
+    "indices " + e.aIndex.toLocaleString("en-US") + " and " + e.bIndex.toLocaleString("en-US");
+  pair.append(idx);
+  row.append(pair);
+
+  row.append(crossCell("key", e.key, "mono"));
+
+  const hash = crossCell("hash", "", "mono");
+  for (const line of e.sameHash ? [e.aHash] : ["a " + e.aHash, "b " + e.bHash]) {
+    const l = document.createElement("span");
+    l.className = "cross-hash-line";
+    l.textContent = line;
+    hash.append(l);
+  }
+  row.append(hash);
+
+  const badge = document.createElement("span");
+  badge.className = "cross-badge " + (e.sameHash ? "is-same" : "is-key");
+  badge.textContent = e.sameHash ? "same hash" : "key only";
+  row.append(badge);
+
+  return row;
+}
+
+$("#btn-cross-scan").addEventListener("click", async () => {
+  const btn = $("#btn-cross-scan");
+  const msg = $("#cross-msg");
+  const list = $("#cross-list");
+  const which = $("#cross-alg").value;
+  btn.disabled = true;
+  list.innerHTML = "";
+  msg.textContent = "scanning " + which + " — reads the whole database once";
+  try {
+    const data = await post("/api/crossover/scan", "alg=" + encodeURIComponent(which));
+    const secs = (data.took_ms / 1000).toFixed(1);
+    if (data.found === 0) {
+      msg.textContent = "No shared keys in " + which + " (" + secs + "s).";
+      list.append(crossEmpty("No crossovers — every shard key is unique in this database."));
+      return;
+    }
+    msg.textContent =
+      data.found +
+      " crossover" +
+      (data.found === 1 ? "" : "s") +
+      " in " +
+      which +
+      (data.sameHash ? " · " + data.sameHash + " with an identical hash" : " · all key only") +
+      " (" +
+      secs +
+      "s).";
+    list.append(crossHeadRow());
+    for (const e of data.examples) list.append(crossRow(e));
+  } catch (err) {
+    msg.textContent = "Scan failed: " + err.message;
+    list.append(crossEmpty("Scan failed — " + err.message));
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("#btn-rand-check").addEventListener("click", async () => {
+  const btn = $("#btn-rand-check");
+  const msg = $("#rand-msg");
+  const list = $("#rand-list");
+  const count = Math.max(1, Math.min(2000, Number($("#rand-count").value) || 50));
+  const size = Math.max(1, Math.min(256, Number($("#rand-size").value) || 16));
+  btn.disabled = true;
+  list.innerHTML = "";
+  msg.textContent = "hashing and checking — each file reads one shard per algorithm";
+  try {
+    const data = await post("/api/crossover/random", "count=" + count + "&size=" + size);
+    const secs = (data.took_ms / 1000).toFixed(1);
+    const per = Object.entries(data.algs)
+      .map(([k, v]) => k + " " + v.matches + "/" + v.checked)
+      .join(" · ");
+    msg.textContent = data.files + " files × " + data.size + " B in " + secs + "s · " + per;
+    if (data.totalHits === 0) {
+      list.append(
+        crossItem("result", "No stored digest matched", "random data almost never coincides with a generated text", "miss")
+      );
+    } else {
+      for (const m of data.matches) {
+        list.append(
+          crossItem(
+            m.alg + " · file " + m.file + " · " + m.source,
+            m.text,
+            "data " + JSON.stringify(m.data) + " · index " + m.index,
+            "hit"
+          )
+        );
+      }
+    }
+  } catch (err) {
+    msg.textContent = "Check failed: " + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 // ------------------------------------------------------------------- boot ---
 
 refresh();

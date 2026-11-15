@@ -53,9 +53,18 @@ body {
   font-size: 16px;
   line-height: 1.55;
   color: var(--text);
-  background:
-    radial-gradient(1100px 420px at 50% -180px, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%),
-    var(--bg);
+  /* Layered wash: accent light from the top, a second bloom at the right,
+     a faint glow at the bottom left, a hairline ledger grid, then grain. */
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(1100px 540px at 50% -190px, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
+    radial-gradient(820px 480px at 102% -40px, color-mix(in srgb, var(--accent) 10%, transparent), transparent 72%),
+    radial-gradient(900px 620px at -8% 104%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%),
+    repeating-linear-gradient(to right, color-mix(in srgb, var(--text) 4%, transparent) 0 1px, transparent 1px 72px),
+    repeating-linear-gradient(to bottom, color-mix(in srgb, var(--text) 4%, transparent) 0 1px, transparent 1px 72px),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.055'/%3E%3C/svg%3E");
+  background-size: auto, auto, auto, 72px 72px, 72px 72px, 160px 160px;
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat, repeat, repeat;
   -webkit-font-smoothing: antialiased;
 }
 h1, h2, h3 { margin: 0; font-weight: 600; }
@@ -71,9 +80,16 @@ a { color: var(--accent); }
 }
 .hint { font-size: 13px; color: var(--muted); }
 
+
 /* ============================================================
    Top bar
    ============================================================ */
+.topbar::after {
+  content: "";
+  position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 55%, transparent) 22%, color-mix(in srgb, var(--accent) 55%, transparent) 78%, transparent);
+  pointer-events: none;
+}
 .topbar {
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; justify-content: space-between;
@@ -159,6 +175,8 @@ a { color: var(--accent); }
    Layout
    ============================================================ */
 .wrap {
+  position: relative;
+  z-index: 1;
   max-width: 1180px;
   margin: 0 auto;
   padding: var(--s32) var(--s24) var(--s64);
@@ -370,6 +388,8 @@ textarea.input { resize: vertical; min-height: 76px; }
    Footer
    ============================================================ */
 .footer {
+  position: relative;
+  z-index: 1;
   max-width: 1180px; margin: 0 auto;
   padding: 0 var(--s24) var(--s32);
   display: flex; justify-content: space-between; gap: var(--s16); flex-wrap: wrap;
@@ -406,6 +426,159 @@ textarea.input { resize: vertical; min-height: 76px; }
   .panel-head, .db-row, .tabs, .tab-panel, .form, .panel-foot { padding-left: var(--s16); padding-right: var(--s16); }
   .brand-sub { display: none; }
   .topbar-actions .btn { flex: 1; }
+}
+
+/* ============================================================
+   Crossovers
+   ============================================================ */
+.cross-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cross-col {
+  display: flex; flex-direction: column; gap: var(--s12);
+  padding: var(--s16) var(--s24) var(--s24);
+  min-width: 0;
+}
+.cross-col + .cross-col { border-left: 1px solid var(--line); }
+.cross-col h3 { font-size: 1.05rem; font-weight: 600; }
+.cross-col .hint { max-width: 54ch; }
+.controls { display: flex; gap: var(--s12); align-items: flex-end; flex-wrap: wrap; }
+.controls .field { flex: 1; min-width: 110px; }
+.controls .btn { flex: none; }
+select.input {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 17px) 55%, calc(100% - 12px) 55%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 32px;
+  cursor: pointer;
+}
+.cross-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--s8);
+  max-height: 240px; overflow: auto;
+}
+.cross-item {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.cross-item.is-hit { border-left: 3px solid var(--accent); }
+.cross-item.is-miss { border-left: 3px solid var(--muted); }
+.cross-head {
+  display: block;
+  font-size: 11px; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 2px;
+}
+.cross-main { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+.cross-badge {
+  display: inline-block;
+  margin-top: 5px; margin-right: 6px;
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted);
+}
+.cross-badge.is-same { color: var(--accent); border-color: currentColor; }
+.cross-hash {
+  display: block;
+  font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+  margin-top: 3px; overflow-wrap: anywhere;
+}
+
+/* scan results as a table: database / entries / key / hash / match */
+.cross-results {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.cross-table { display: grid; gap: 6px; margin-top: 8px; }
+.cross-row {
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr) 15ch minmax(0, 1.5fr) auto;
+  gap: 12px;
+  align-items: start;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+}
+.cross-row-head {
+  background: none;
+  border-color: transparent;
+  padding: 0 10px 2px;
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted);
+}
+.cross-cell.mono { font-family: var(--mono); }
+.cross-cell .cross-sub { font-family: var(--font-body, inherit); }
+.cross-pair { overflow-wrap: anywhere; }
+.cross-hash-line { display: block; overflow-wrap: anywhere; }
+.cross-empty { display: block; color: var(--muted); font-size: 12.5px; }
+
+@media (max-width: 760px) {
+  .cross-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .cross-row-head { display: none; }
+  .cross-cell::before {
+    content: attr(data-label) " ";
+    color: var(--muted); text-transform: uppercase; font-size: 10px; letter-spacing: .07em;
+  }
+}
+.cross-sub { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+
+@media (max-width: 900px) {
+  .cross-grid { grid-template-columns: minmax(0, 1fr); }
+  .cross-col + .cross-col { border-left: 0; border-top: 1px solid var(--line); }
+}
+
+/* ============================================================
+   Scrollbar
+   WebKit/Blink gets a gradient pill; Firefox gets the closest
+   equivalent through the standard properties.
+   ============================================================ */
+@supports not selector(::-webkit-scrollbar) {
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--accent) 72%, var(--bg)) var(--surface-2);
+  }
+}
+
+@supports selector(::-webkit-scrollbar) {
+  ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--surface-2);
+    border-left: 1px solid var(--line);
+  }
+  ::-webkit-scrollbar-thumb {
+    min-height: 48px;
+    border: 3px solid var(--surface-2);
+    border-radius: 999px;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 82%, transparent),
+      color-mix(in srgb, var(--accent) 40%, transparent)
+    );
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(
+      180deg,
+      var(--accent),
+      color-mix(in srgb, var(--accent) 62%, transparent)
+    );
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background: var(--accent);
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-corner { background: var(--surface-2); }
 }
 
 @media (prefers-reduced-motion: reduce) {

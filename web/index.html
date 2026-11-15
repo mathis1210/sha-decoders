@@ -196,6 +196,56 @@
       </div>
     </section>
 
+    <section class="panel crossovers" aria-labelledby="cross-title">
+      <div class="panel-head">
+        <h2 id="cross-title">Crossovers</h2>
+        <span class="panel-meta">55-bit shard keys · every pair re-hashed</span>
+      </div>
+
+      <div class="cross-grid">
+        <div class="cross-col">
+          <h3>Database scan</h3>
+          <p class="hint">Two entries that share a 55-bit key land in the same shard slot. Each pair is re-hashed and labelled: <strong>key only</strong> when the full digests differ, <strong>same hash</strong> when all digest bytes match. At roughly 300 million entries per database, expect about one key-only pair.</p>
+          <div class="controls">
+            <label class="field">
+              <span>Database</span>
+              <select class="input" id="cross-alg">
+                <option value="sha1">sha1</option>
+                <option value="sha256">sha256</option>
+                <option value="sha384">sha384</option>
+                <option value="sha512">sha512</option>
+                <option value="all">all four</option>
+              </select>
+            </label>
+            <button class="btn btn-primary" type="button" id="btn-cross-scan">Scan</button>
+          </div>
+        </div>
+
+        <div class="cross-col">
+          <h3>Random files</h3>
+          <p class="hint">Generate random byte files, hash each with all four algorithms, and check whether any digest is already stored.</p>
+          <div class="controls">
+            <label class="field">
+              <span>Files</span>
+              <input class="input" id="rand-count" type="number" min="1" max="2000" value="50">
+            </label>
+            <label class="field">
+              <span>Bytes each</span>
+              <input class="input" id="rand-size" type="number" min="1" max="256" value="16">
+            </label>
+            <button class="btn btn-primary" type="button" id="btn-rand-check">Generate &amp; check</button>
+          </div>
+          <p class="hint" id="rand-msg" aria-live="polite">nothing checked yet</p>
+          <ul class="cross-list" id="rand-list"></ul>
+        </div>
+      </div>
+
+      <div class="cross-results">
+        <p class="hint" id="cross-msg" aria-live="polite">never scanned</p>
+        <div class="cross-table" id="cross-list"></div>
+      </div>
+    </section>
+
   </main>
 
   <footer class="footer">

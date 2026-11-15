@@ -97,6 +97,8 @@ struct App {
     limits: Mutex<Limits>,
     stopped_by: Mutex<Option<String>>,
     rate: Mutex<Rate>,
+    /// Sequence positions per generation pass, shared across all workers.
+    batch: u64,
 }
 
 impl App {
@@ -229,8 +231,7 @@ fn generate(app: Arc<App>) {
         .unwrap_or(4)
         .clamp(1, 16);
 
-    const BATCH: u64 = 32_768;
-    let per = BATCH / nthreads as u64;
+    let per = (app.batch / nthreads as u64).max(1);
 
     while app.running.load(Ordering::Relaxed) {
         let (base, enabled) = {
@@ -399,6 +400,14 @@ fn respond(stream: &mut TcpStream, status: &str, ctype: &str, body: &[u8]) -> io
     stream.flush()
 }
 
+fn to_hex(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
+}
+
 fn json(stream: &mut TcpStream, body: &str) -> io::Result<()> {
     respond(stream, "200 OK", "application/json", body.as_bytes())
 }
@@ -412,6 +421,30 @@ fn bad_request(stream: &mut TcpStream, msg: &str) -> io::Result<()> {
 
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
+}
+
+/// Tiny xorshift generator, seeded from the clock: enough for test payloads.
+struct Rng(u64);
+
+impl Rng {
+    fn new() -> Rng {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(1);
+        Rng(t ^ 0x9E37_79B9_7F4A_7C15)
+    }
+    fn next(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0 = x;
+        x
+    }
+    fn byte(&mut self) -> u8 {
+        (self.next() >> 33) as u8
+    }
 }
 
 fn handle(mut stream: TcpStream, app: &Arc<App>) -> io::Result<()> {
@@ -607,6 +640,152 @@ fn handle(mut stream: TcpStream, app: &Arc<App>) -> io::Result<()> {
                 Err(e) => bad_request(&mut stream, &format!("Could not read db: {e}")),
             }
         }
+        ("POST", "/api/crossover/scan") => {
+            let which = field(body, "alg");
+            let algs: Vec<usize> = if which.is_empty() || which == "all" {
+                (0..4).collect()
+            } else {
+                match NAMES.iter().position(|n| *n == which) {
+                    Some(i) => vec![i],
+                    None => return bad_request(&mut stream, "Unknown algorithm."),
+                }
+            };
+            let started = Instant::now();
+            let mut found = 0u64;
+            let mut same_hash = 0u64;
+            let mut examples = String::new();
+            for a in algs {
+                let res = {
+                    let mut s = app.store.lock().unwrap();
+                    match s.flush() {
+                        Ok(()) => s.scan_crossovers(a, 10),
+                        Err(e) => Err(e),
+                    }
+                };
+                match res {
+                    Ok((n, list)) => {
+                        found += n;
+                        for c in list {
+                            if !examples.is_empty() {
+                                examples.push(',');
+                            }
+                            let at = store::text_of(c.a_index);
+                            let bt = store::text_of(c.b_index);
+                            let ah = store::digest(a, &at);
+                            let bh = store::digest(a, &bt);
+                            let same = ah == bh;
+                            if same {
+                                same_hash += 1;
+                            }
+                            examples.push_str(&format!(
+                                "{{\"alg\":\"{}\",\"shard\":{},\"aIndex\":{},\"bIndex\":{},\"aText\":\"{}\",\"bText\":\"{}\",\"key\":\"{:014x}\",\"sameHash\":{},\"aHash\":\"{}\",\"bHash\":\"{}\"}}",
+                                NAMES[a],
+                                c.shard,
+                                c.a_index,
+                                c.b_index,
+                                json_escape(&String::from_utf8_lossy(&at)),
+                                json_escape(&String::from_utf8_lossy(&bt)),
+                                c.key,
+                                same,
+                                to_hex(&ah),
+                                to_hex(&bh)
+                            ));
+                        }
+                    }
+                    Err(e) => return bad_request(&mut stream, &format!("Scan failed: {e}")),
+                }
+            }
+            json(
+                &mut stream,
+                &format!(
+                    "{{\"ok\":true,\"found\":{},\"sameHash\":{},\"examples\":[{}],\"took_ms\":{}}}",
+                    found,
+                    same_hash,
+                    examples,
+                    started.elapsed().as_millis()
+                ),
+            )
+        }
+        ("POST", "/api/crossover/random") => {
+            let count = field(body, "count")
+                .parse::<usize>()
+                .unwrap_or(50)
+                .clamp(1, 2000);
+            let size = field(body, "size")
+                .parse::<usize>()
+                .unwrap_or(16)
+                .clamp(1, 256);
+            let mut rng = Rng::new();
+            let blobs: Vec<Vec<u8>> = (0..count)
+                .map(|_| (0..size).map(|_| 0x20 + (rng.byte() % 95)).collect())
+                .collect();
+            let hashes: [Vec<Vec<u8>>; 4] = std::array::from_fn(|a| {
+                blobs
+                    .iter()
+                    .map(|b| match a {
+                        0 => sha::sha1(b).to_vec(),
+                        1 => sha::sha256(b).to_vec(),
+                        2 => sha::sha384(b).to_vec(),
+                        _ => sha::sha512(b).to_vec(),
+                    })
+                    .collect()
+            });
+
+            let started = Instant::now();
+            let mut per = String::new();
+            let mut hits = String::new();
+            let mut total = 0u64;
+            for a in 0..4 {
+                let res = {
+                    let s = app.store.lock().unwrap();
+                    s.find_matches(a, &hashes[a])
+                };
+                match res {
+                    Ok(list) => {
+                        let matched = list.iter().filter(|m| m.is_some()).count() as u64;
+                        total += matched;
+                        if !per.is_empty() {
+                            per.push(',');
+                        }
+                        per.push_str(&format!(
+                            "\"{}\":{{\"checked\":{},\"matches\":{}}}",
+                            NAMES[a],
+                            list.len(),
+                            matched
+                        ));
+                        for (i, m) in list.iter().enumerate() {
+                            if let Some(f) = m {
+                                if !hits.is_empty() {
+                                    hits.push(',');
+                                }
+                                hits.push_str(&format!(
+                                    "{{\"alg\":\"{}\",\"file\":{},\"data\":\"{}\",\"source\":\"{}\",\"index\":{},\"text\":\"{}\"}}",
+                                    NAMES[a],
+                                    i,
+                                    json_escape(&String::from_utf8_lossy(&blobs[i])),
+                                    if f.index == u64::MAX { "user" } else { "sequence" },
+                                    if f.index == u64::MAX { 0 } else { f.index },
+                                    json_escape(&String::from_utf8_lossy(&f.text))
+                                ));
+                            }
+                        }
+                    }
+                    Err(e) => return bad_request(&mut stream, &format!("Check failed: {e}")),
+                }
+            }
+            json(
+                &mut stream,
+                &format!(
+                    "{{\"ok\":true,\"files\":{},\"size\":{},\"algs\":{{{}}},\"totalHits\":{},\"matches\":[{}],\"took_ms\":{}}}",
+                    count,
+                    size,
+                    per,
+                    total,
+                    hits,
+                    started.elapsed().as_millis()
+                ),
+            )
+        }
         ("GET", "/favicon.ico") => respond(&mut stream, "204 No Content", "text/plain", b""),
         _ => respond(&mut stream, "404 Not Found", "text/plain", b"not found"),
     }
@@ -615,6 +794,7 @@ fn handle(mut stream: TcpStream, app: &Arc<App>) -> io::Result<()> {
 fn main() {
     let mut port: u16 = 8080;
     let mut data_dir = PathBuf::from("data");
+    let mut batch: u64 = 262_144;
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
@@ -630,6 +810,12 @@ fn main() {
                 i += 1;
                 if let Some(d) = args.get(i) {
                     data_dir = PathBuf::from(d);
+                }
+            }
+            "--batch" | "-b" => {
+                i += 1;
+                if let Some(b) = args.get(i).and_then(|v| v.parse::<u64>().ok()) {
+                    batch = b.clamp(4_096, 8_388_608);
                 }
             }
             other => {
@@ -662,6 +848,7 @@ fn main() {
         limits: Mutex::new(Limits::default()),
         stopped_by: Mutex::new(None),
         rate: Mutex::new(Rate::default()),
+        batch,
     });
 
     let addr = format!("127.0.0.1:{port}");
@@ -675,6 +862,7 @@ fn main() {
 
     println!("sha-decoder running at http://{addr}");
     println!("db files in {}", abs(&data_dir).display());
+    println!("batch: {} positions per pass", batch);
     println!(
         "entries: sha1={} sha256={} sha384={} sha512={}",
         counts[0], counts[1], counts[2], counts[3]

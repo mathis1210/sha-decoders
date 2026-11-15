@@ -33,10 +33,12 @@ The first build takes a few seconds; after that the binary starts instantly. Sto
 ### Options
 
 ```
-sha-decoder [--port PORT] [--data DIR]
+sha-decoder [--port PORT] [--data DIR] [--batch N]
 
   --port, -p   port to listen on (default 8080, binds 127.0.0.1 only)
   --data, -d   folder for the databases (default ./data)
+  --batch, -b  sequence positions per generation pass (default 262144,
+               clamped to 4096..8388608)
 ```
 
 ```bash
@@ -157,6 +159,11 @@ Measured on a Windows desktop with the four databases enabled, this build:
 Generation is parallelised across the CPU cores, and a disabled algorithm costs no hashing at
 all.
 
+`--batch` trades stop latency for per-pass overhead, not throughput: measuring 32k, 128k, 256k,
+512k and 1M passes on the same machine gives 3.8–5.1M positions/s for every size, with the
+spread between runs larger than the spread between sizes. Bigger passes only mean Stop takes
+longer to take effect (a 1M pass is ~0.25s at 4M/s).
+
 ## HTTP API
 
 The page is a thin client over these endpoints; they are handy for scripting too.
@@ -173,11 +180,41 @@ The page is a thin client over these endpoints; they are handy for scripting too
 | POST | `/api/remove` | `alg=sha256` | updated status |
 | POST | `/api/encode` | raw UTF-8 text | `{ok, saved, sha1, sha256, sha384, sha512}` |
 | POST | `/api/decode` | raw hex hash | `{ok, found, alg, text}` |
+| POST | `/api/crossover/scan` | `alg=sha1\|sha256\|sha384\|sha512\|all` | pairs sharing a shard key, each re-hashed: `sameHash`, `aHash`, `bHash` |
+| POST | `/api/crossover/random` | `count=&size=` | random blobs hashed and looked up, per-algorithm hit counts |
 
 ```bash
 curl -X POST --data-binary "hello" http://127.0.0.1:8080/api/encode
 curl -X POST --data-binary "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d" \
      http://127.0.0.1:8080/api/decode
+```
+
+## Crossovers
+
+An entry stores a 55-bit shard key taken from the first 8 bytes of its digest, not the digest
+itself. Two different texts can therefore land on the same key while hashing nothing alike:
+about one such pair per 300 million entries, roughly 14 per billion.
+
+The Crossovers panel — and `POST /api/crossover/scan` — walks one database (or all four),
+sorts the keys and reports every pair that shares one. Each pair is then re-hashed and
+labelled:
+
+- **key only** — the full digests differ. This is the ordinary truncation case.
+- **same hash** — every digest byte matches. Two different texts with the same digest would
+  mean the hash function is broken, not that the index is; the badge exists so that case is
+  never confused with the harmless one.
+
+Lookups are unaffected: every candidate that shares a key is re-hashed and compared byte for
+byte, so a collision costs one extra hash and never returns the wrong text.
+
+`POST /api/crossover/random` generates random byte files, hashes each with all four
+
+algorithms and looks them up; a hit means a random file produced a digest the sequence
+already holds.
+
+```bash
+curl -X POST --data "alg=sha512" http://127.0.0.1:8080/api/crossover/scan
+curl -X POST --data "count=50&size=16" http://127.0.0.1:8080/api/crossover/random
 ```
 
 ## Project layout
@@ -186,7 +223,9 @@ curl -X POST --data-binary "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d" \
 src/main.rs     HTTP/1.1 server, generator threads, stop rules, SSE
 src/sha.rs      SHA-1, SHA-256, SHA-384 and SHA-512, written from scratch
 src/store.rs    sequence, shard files, encode/decode storage
-web/index.html  the entire UI (HTML, CSS, JS in one file, embedded in the binary)
+web/index.html  the UI markup, embedded in the binary
+web/styles.css  the stylesheet, served at /styles.css
+web/script.js   the client logic, served at /script.js
 ```
 
 ## Notes
